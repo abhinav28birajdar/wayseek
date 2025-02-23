@@ -1,62 +1,78 @@
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { useState } from 'react';
-import { Button, StyleSheet, Text, TouchableOpacity, View, Animated } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Dimensions } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
-export default function App() {
+const { width, height } = Dimensions.get('window');
+
+export default function App(): JSX.Element {
   const [facing, setFacing] = useState<CameraType>('back');
   const [permission, requestPermission] = useCameraPermissions();
-  const [showText, setShowText] = useState(true);
-  const slideAnim = useState(new Animated.Value(1))[0];
+  const [showSecondView, setShowSecondView] = useState<boolean>(false);
 
   if (!permission) return <View />;
   if (!permission.granted) {
     return (
       <View style={styles.container}>
         <Text style={styles.message}>We need your permission to show the camera</Text>
-        <Button onPress={requestPermission} title="Grant Permission" />
+        <TouchableOpacity 
+          style={styles.startButton} 
+          onPress={requestPermission}
+        >
+          <Text style={styles.startButtonText}>Grant Permission</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
-  function toggleCameraFacing() {
+  function toggleCameraFacing(): void {
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
   }
 
-  function toggleTextSection() {
-    Animated.timing(slideAnim, {
-      toValue: showText ? 0 : 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => setShowText(!showText));
+  if (!showSecondView) {
+    return (
+      <View style={styles.container}>
+        <CameraView style={styles.camera} facing={facing}>
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity 
+              style={styles.startButton}
+              onPress={() => setShowSecondView(true)}
+            >
+              <Text style={styles.startButtonText}>START</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.flipButton} 
+              onPress={toggleCameraFacing}
+            >
+              <MaterialIcons name="flip-camera-ios" size={30} color="#2C1810" />
+            </TouchableOpacity>
+          </View>
+        </CameraView>
+      </View>
+    );
   }
 
   return (
     <View style={styles.container}>
-      {/* Top Half - Camera */}
-      <View style={styles.cameraContainer}>
-        <CameraView style={styles.camera} facing={facing} />
+      <View style={styles.whiteSection}>
+        <CameraView style={styles.camera} facing={facing}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => setShowSecondView(false)}
+          >
+            <MaterialIcons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+        </CameraView>
+        <View style={styles.secondViewButtonContainer}>
+          <TouchableOpacity 
+            style={styles.flipButton} 
+            onPress={toggleCameraFacing}
+          >
+            <MaterialIcons name="flip-camera-ios" size={30} color="#2C1810" />
+          </TouchableOpacity>
+        </View>
       </View>
-
-      {/* Bottom Half - Text Content */}
-      <Animated.View
-        style={[
-          styles.textContainer,
-          {
-            transform: [{ translateY: slideAnim.interpolate({ inputRange: [0, 1], outputRange: [100, 0] }) }],
-            opacity: slideAnim,
-          },
-        ]}
-      >
-        <Text style={styles.text}>Camera Controls & Info</Text>
-        <TouchableOpacity style={styles.button} onPress={toggleCameraFacing}>
-          <Text style={styles.buttonText}>Flip Camera</Text>
-        </TouchableOpacity>
-      </Animated.View>
-
-      {/* Toggle Button (Behind Flip Camera) */}
-      <TouchableOpacity style={styles.toggleButton} onPress={toggleTextSection}>
-        <Text style={styles.buttonText}>{showText ? 'Hide' : 'Show'} Text</Text>
-      </TouchableOpacity>
+      <View style={styles.brownSection} />
     </View>
   );
 }
@@ -64,39 +80,89 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  cameraContainer: {
-    flex: 1,
+    backgroundColor: '#000',
   },
   camera: {
     flex: 1,
+    backgroundColor: '#fff',
+    width: width,
   },
-  textContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-  },
-  text: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  button: {
-    backgroundColor: 'black',
-    padding: 15,
-    borderRadius: 5,
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 18,
-  },
-  toggleButton: {
+  buttonContainer: {
     position: 'absolute',
-    bottom: 80,
+    bottom: 0,
     alignSelf: 'center',
-    backgroundColor: 'gray',
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 1,
+    width: '100%',
+    paddingHorizontal: 0,
+    paddingBottom: 10,
+    justifyContent: 'space-between',
+  },
+  secondViewButtonContainer: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    alignSelf: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  flipButton: {
+    backgroundColor: '#fff',
     padding: 10,
-    borderRadius: 5,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  startButton: {
+    backgroundColor: '#2C1810',
+    paddingVertical: 10,
+    paddingHorizontal: 25,
+    borderRadius: 10,
+    shadowColor: '#000',
+    left:130,
+    top:10,
+    shadowOffset: {
+      width: 2,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  startButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  message: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  whiteSection: {
+    flex: 3,
+    backgroundColor: '#fff',
+    position: 'relative',
+  },
+  brownSection: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 10,
+    left: 1,
+    padding: 10,
+    zIndex: 2,
+    color: '#0000',
   },
 });

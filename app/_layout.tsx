@@ -47,10 +47,10 @@ export default function RootLayout() {
           }}
         />
         <Tab.Screen
-          name="Book"
+          name="file"
           component={BookScreen}
           options={{
-            tabBarIcon: () => <Icon size={24} name="book" color={iconColor} />,
+            tabBarIcon: () => <Icon size={24} name="file" color={iconColor} />,
           }}
         />
         <Tab.Screen
