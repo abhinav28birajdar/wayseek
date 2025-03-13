@@ -34,10 +34,10 @@ export default function RootLayout() {
     return null;
   }
 
-  const iconColor = colorScheme === 'dark' ? 'white' : 'black';
+  const iconColor = colorScheme === 'light' ? 'white' : 'white';
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <Tab.Navigator>
         <Tab.Screen
           name="Home"

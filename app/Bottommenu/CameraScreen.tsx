@@ -1,12 +1,36 @@
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Dimensions } from 'react-native';
+import { Camera, CameraType, requestCameraPermissionsAsync, getCameraPermissionsAsync, PermissionResponse } from 'expo-camera';
+import { useState, useEffect } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View, Dimensions, GestureResponderEvent } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import React from 'react';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
+
+// Custom hook for camera permissions with proper typing
+function useCameraPermissions(): [
+  PermissionResponse | null,
+  () => Promise<PermissionResponse>
+] {
+  const [permission, setPermission] = useState<PermissionResponse | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const permissionResult = await getCameraPermissionsAsync();
+      setPermission(permissionResult);
+    })();
+  }, []);
+
+  const requestPermission = async (): Promise<PermissionResponse> => {
+    const permissionResult = await requestCameraPermissionsAsync();
+    setPermission(permissionResult);
+    return permissionResult;
+  };
+
+  return [permission, requestPermission];
+}
 
 export default function App(): JSX.Element {
-  const [facing, setFacing] = useState<CameraType>('back');
+  const [facing, setFacing] = useState<CameraType>(CameraType.back);
   const [permission, requestPermission] = useCameraPermissions();
   const [showSecondView, setShowSecondView] = useState<boolean>(false);
 
@@ -17,7 +41,7 @@ export default function App(): JSX.Element {
         <Text style={styles.message}>We need your permission to show the camera</Text>
         <TouchableOpacity 
           style={styles.startButton} 
-          onPress={requestPermission}
+          onPress={() => requestPermission()}
         >
           <Text style={styles.startButtonText}>Grant Permission</Text>
         </TouchableOpacity>
@@ -26,13 +50,13 @@ export default function App(): JSX.Element {
   }
 
   function toggleCameraFacing(): void {
-    setFacing((current) => (current === 'back' ? 'front' : 'back'));
+    setFacing((current) => (current === CameraType.back ? CameraType.front : CameraType.back));
   }
 
   if (!showSecondView) {
     return (
       <View style={styles.container}>
-        <CameraView style={styles.camera} facing={facing}>
+        <Camera style={styles.camera} type={facing}>
           <View style={styles.buttonContainer}>
             <TouchableOpacity 
               style={styles.startButton}
@@ -47,7 +71,7 @@ export default function App(): JSX.Element {
               <MaterialIcons name="flip-camera-ios" size={30} color="#2C1810" />
             </TouchableOpacity>
           </View>
-        </CameraView>
+        </Camera>
       </View>
     );
   }
@@ -55,14 +79,14 @@ export default function App(): JSX.Element {
   return (
     <View style={styles.container}>
       <View style={styles.whiteSection}>
-        <CameraView style={styles.camera} facing={facing}>
+        <Camera style={styles.camera} type={facing}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => setShowSecondView(false)}
           >
             <MaterialIcons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
-        </CameraView>
+        </Camera>
         <View style={styles.secondViewButtonContainer}>
           <TouchableOpacity 
             style={styles.flipButton} 
@@ -96,12 +120,12 @@ const styles = StyleSheet.create({
     zIndex: 1,
     width: '100%',
     paddingHorizontal: 0,
-    paddingBottom: 10,
+    paddingBottom: 40,
     justifyContent: 'space-between',
   },
   secondViewButtonContainer: {
     position: 'absolute',
-    bottom: 10,
+    top: 10,
     right: 10,
     alignSelf: 'flex-end',
     flexDirection: 'row',
@@ -123,12 +147,12 @@ const styles = StyleSheet.create({
   },
   startButton: {
     backgroundColor: '#2C1810',
-    paddingVertical: 10,
-    paddingHorizontal: 25,
-    borderRadius: 10,
+    paddingVertical: 50,
+    paddingHorizontal: 55,
+    borderRadius: 20,
     shadowColor: '#000',
-    left:130,
-    top:10,
+    left: 95,
+   
     shadowOffset: {
       width: 2,
       height: 2,
