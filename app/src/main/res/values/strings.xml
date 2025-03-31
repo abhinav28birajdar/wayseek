@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">Wayseek</string>
     <string name="gpu">GPU</string>
+    <string name="log_activity_title">Detection Log</string>
+    <string name="log_entry_format">Detected: %1$s</string>
+    <string name="log_entry_count_format">%1$d x %2$s</string>
 </resources>
