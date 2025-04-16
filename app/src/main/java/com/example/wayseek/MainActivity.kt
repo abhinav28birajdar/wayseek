@@ -29,7 +29,8 @@ import com.example.wayseek.Constants.LABELS_PATH
 import com.example.wayseek.Constants.MODEL_PATH
 import com.example.wayseek.databinding.ActivityMainBinding
 import java.util.* // Added for Locale
-import java.util.concurrent.ConcurrentHashMap // Use ConcurrentHashMap for thread-safe map
+// --- CHANGE: Import AtomicReference ---
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -54,9 +55,12 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
     // Delayed Logging & TTS Components
     private val logUpdateHandler = Handler(Looper.getMainLooper())
     private lateinit var logUpdateRunnable: Runnable
-    private val maxSimultaneousCountsInInterval: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
+    // --- CHANGE: Remove max counts map ---
+    // private val maxSimultaneousCountsInInterval: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
+    // --- CHANGE: Add AtomicReference for latest counts ---
+    private val lastDetectedCountsRef = AtomicReference<Map<String, Int>>(emptyMap())
+
     private val LOG_UPDATE_INTERVAL_MS = 5000L // Visual Log update interval: 5 seconds
-    // --- Flag for 10-second TTS interval - RE-ADDED ---
     private var triggerTtsNextTime = false // Start false, so speech is at 10s, 20s, etc.
 
     // Text-to-Speech Components
@@ -84,7 +88,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
             Log.d(TAG, "Detector initialized on background thread.")
         }
 
-        setupDelayedLogUpdate()
+        setupDelayedLogUpdate() // Define the repeating task
 
         if (allPermissionsGranted()) {
             startCamera()
@@ -96,7 +100,6 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
     }
 
     override fun onInit(status: Int) {
-        // (onInit logic remains the same)
         if (status == TextToSpeech.SUCCESS) {
             val result = tts?.setLanguage(Locale.US)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -119,33 +122,25 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
         }
     }
 
-    // --- MODIFIED Setup Repeating Task (TTS Flag Re-added) ---
+    // --- MODIFIED Setup Repeating Task (Uses AtomicReference) ---
     private fun setupDelayedLogUpdate() {
         logUpdateRunnable = Runnable {
             // This runs on the Main (UI) thread every 5 seconds
 
-            // --- Decide if TTS should happen THIS time (every 10s) - RE-ADDED ---
             val speakThisTime = triggerTtsNextTime
             triggerTtsNextTime = !triggerTtsNextTime // Flip the flag for the next 5s run
-            //-------------------------------------------------------------
 
-            // --- Atomically get final max counts and clear for next interval ---
-            val countsToReport: Map<String, Int>
-            synchronized(maxSimultaneousCountsInInterval) {
-                if (maxSimultaneousCountsInInterval.isEmpty()){
-                    countsToReport = emptyMap()
-                } else {
-                    countsToReport = HashMap(maxSimultaneousCountsInInterval)
-                    maxSimultaneousCountsInInterval.clear()
-                }
-            }
-            val sortedCountsToReport = countsToReport.toSortedMap()
+            // --- CHANGE: Get the counts from the LAST processed frame ---
+            val countsToReport = lastDetectedCountsRef.get() // Get the latest snapshot atomically
+            // --- CHANGE: No clearing needed for AtomicReference like this ---
 
+            val sortedCountsToReport = countsToReport.toSortedMap() // Sort for consistent order
 
             if (sortedCountsToReport.isNotEmpty()) {
-                // --- 1. Format max counts for log display (Happens every 5s) ---
+                // --- 1. Format counts for log display (Happens every 5s) ---
                 val logEntries = sortedCountsToReport.map { (name, count) ->
                     try {
+                        // Make sure R.string.log_entry_count_format exists and is like "%1$d x %2$s"
                         getString(R.string.log_entry_count_format, count, name)
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to find R.string.log_entry_count_format", e)
@@ -154,35 +149,34 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
                 }
 
                 // --- 2. Update RecyclerView (Happens every 5s) ---
-                Log.d(TAG, "Updating logs with max simultaneous counts: $logEntries")
-                logAdapter.clearLogs()
-                logAdapter.addLogs(logEntries)
+                Log.d(TAG, "Updating logs with latest counts: $logEntries")
+                logAdapter.clearLogs() // Clear previous interval's logs
+                logAdapter.addLogs(logEntries) // Add logs for the current latest counts
                 binding.logsRecyclerView.scrollToPosition(0)
 
-                // --- 3. Announce max counts via TTS (Happens every 10s) - RE-ADDED Condition ---
+                // --- 3. Announce counts via TTS (Happens every 10s) ---
                 if (speakThisTime) {
-                    Log.i(TAG,"TTS interval reached, attempting to speak max counts.")
+                    Log.i(TAG,"TTS interval reached, attempting to speak latest counts.")
                     speakDetectedObjectCounts(sortedCountsToReport)
                 } else {
                     Log.v(TAG, "TTS interval not reached, skipping speech.")
                 }
-                // ------------------------------------------------------------------------
 
             } else {
-                // No objects detected at all during the 5s interval
-                Log.v(TAG, "No objects detected in the last ${LOG_UPDATE_INTERVAL_MS}ms.")
+                // No objects detected in the last processed frame before the timer fired
+                Log.v(TAG, "No objects detected in the last processed frame.")
                 logAdapter.clearLogs()
                 binding.logsRecyclerView.scrollToPosition(0)
-                // Optional: Decide if TTS flag should reset on empty interval (Current: No reset)
+                // Optional: Decide if TTS flag should reset on empty interval
             }
 
             // --- 4. Reschedule this runnable (Always for 5 seconds) ---
             logUpdateHandler.postDelayed(logUpdateRunnable, LOG_UPDATE_INTERVAL_MS)
         }
+        // Note: The first execution is posted in onResume
     }
     // --- END MODIFIED Setup Repeating Task ---
 
-    // (speakDetectedObjectCounts function remains the same)
     private fun speakDetectedObjectCounts(objectCounts: Map<String, Int>) {
         if (!isTtsInitialized || tts == null || objectCounts.isEmpty()) {
             if (!isTtsInitialized) Log.w(TAG, "TTS not ready, cannot speak counts.")
@@ -196,6 +190,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
                 append(" ")
                 append(name)
                 if (count > 1) {
+                    // Basic pluralization (append 's' if not already ending in 's')
                     if (!name.endsWith("s", ignoreCase = true)) {
                         append("s")
                     }
@@ -212,13 +207,12 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
         tts?.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, null, "detection_count_announcement")
     }
 
-    // (speak function remains the same)
     private fun speak(text: String, utteranceId: String = "general_message") {
         if (!isTtsInitialized || tts == null) return
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
 
-    // (bindListeners function remains the same - clearing map is sufficient)
+    // --- MODIFIED: Removed map clear ---
     private fun bindListeners() {
         binding.apply {
             isGpu.setOnCheckedChangeListener { buttonView, isChecked ->
@@ -228,7 +222,9 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
                 }
                 val colorRes = if (isChecked) R.color.orange else R.color.gray
                 buttonView.backgroundTintList = ContextCompat.getColorStateList(this@MainActivity, colorRes)
-                maxSimultaneousCountsInInterval.clear()
+                // --- CHANGE: Remove map clear ---
+                // maxSimultaneousCountsInInterval.clear()
+                lastDetectedCountsRef.set(emptyMap()) // Reset latest counts on toggle
                 logAdapter.clearLogs()
                 binding.logsRecyclerView.scrollToPosition(0)
                 tts?.stop()
@@ -238,7 +234,6 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
         }
     }
 
-    // (startCamera function remains the same)
     private fun startCamera() {
         Log.d(TAG, "startCamera called")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
@@ -252,7 +247,6 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
         }, ContextCompat.getMainExecutor(this))
     }
 
-    // (bindCameraUseCases function remains the same)
     private fun bindCameraUseCases() {
         Log.d(TAG, "bindCameraUseCases called")
         val cameraProvider = cameraProvider ?: run {
@@ -294,7 +288,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
                     bitmapBuffer, 0, 0, imageProxy.width, imageProxy.height,
                     matrix, true
                 )
-                currentDetector.detect(rotatedBitmap) // Calls onDetect
+                currentDetector.detect(rotatedBitmap) // Calls onDetect or onEmptyDetect
             } catch (e: Exception) {
                 Log.e(TAG, "Error during image analysis/detection", e)
             } finally {
@@ -318,8 +312,6 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
         }
     }
 
-
-    // (Permission handling functions remain the same)
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
@@ -334,8 +326,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
         }
     }
 
-
-    // (onResume function remains the same, clearing map is good)
+    // --- MODIFIED: Removed map clear, starts the repeating task ---
     override fun onResume() {
         super.onResume()
         Log.d(TAG, "onResume called")
@@ -350,27 +341,25 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
                 startCamera()
             }
             Log.d(TAG, "Starting delayed log/speech updater.")
-            maxSimultaneousCountsInInterval.clear() // Clear counts on resume
+            // --- CHANGE: Remove map clear ---
+            // maxSimultaneousCountsInInterval.clear()
+            lastDetectedCountsRef.set(emptyMap()) // Reset latest counts on resume
             // Optional: Reset TTS rhythm on resume?
             // triggerTtsNextTime = false
-            logUpdateHandler.removeCallbacks(logUpdateRunnable)
-            logUpdateHandler.postDelayed(logUpdateRunnable, LOG_UPDATE_INTERVAL_MS)
+            logUpdateHandler.removeCallbacks(logUpdateRunnable) // Remove any existing callbacks
+            logUpdateHandler.postDelayed(logUpdateRunnable, LOG_UPDATE_INTERVAL_MS) // Start the repeating task
         }
     }
 
-
-    // (onPause function remains the same)
     override fun onPause() {
         super.onPause()
         Log.d(TAG, "onPause called")
         Log.d(TAG, "Stopping delayed log/speech updater.")
-        logUpdateHandler.removeCallbacks(logUpdateRunnable)
+        logUpdateHandler.removeCallbacks(logUpdateRunnable) // Stop the repeating task
         tts?.stop()
         Log.d(TAG, "TTS speech stopped on pause.")
     }
 
-
-    // (onDestroy function remains the same)
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "onDestroy called")
@@ -382,7 +371,7 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
             tts = null
         }
         isTtsInitialized = false
-        logUpdateHandler.removeCallbacks(logUpdateRunnable)
+        logUpdateHandler.removeCallbacks(logUpdateRunnable) // Clean up handler callbacks
         detector?.close()
         cameraExecutor.shutdown()
         try {
@@ -396,52 +385,51 @@ class MainActivity : AppCompatActivity(), Detector.DetectorListener, TextToSpeec
         Log.d(TAG,"CameraExecutor shut down.")
     }
 
-
-    // (companion object remains the same)
     companion object {
         private const val TAG = "WaySeekApp_MainActivity"
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
     }
 
-
-    // (onEmptyDetect function remains the same)
+    // --- MODIFIED: Updates AtomicReference on empty detect ---
     override fun onEmptyDetect() {
         runOnUiThread {
             binding.overlay.clear()
             binding.inferenceTime.text = ""
+            // Note: RecyclerView update happens in the timer now
         }
+        // --- CHANGE: Set latest counts to empty ---
+        lastDetectedCountsRef.set(emptyMap())
     }
 
-
-    // (onDetect function remains the same - updates max counts per frame)
+    // --- MODIFIED: Updates AtomicReference with current frame's counts ---
     override fun onDetect(boundingBoxes: List<BoundingBox>, inferenceTime: Long) {
-        // Update UI
+        // Update UI immediately
         runOnUiThread {
             binding.inferenceTime.text = "${inferenceTime}ms"
             binding.overlay.apply {
                 setResults(boundingBoxes)
                 invalidate()
             }
+            // Note: RecyclerView update happens in the timer now
         }
 
-        // Update max counts based on this frame
-        if (boundingBoxes.isNotEmpty()) {
-            val currentFrameCounts = boundingBoxes
+        // --- CHANGE: Calculate counts for THIS frame and store them atomically ---
+        val currentFrameCounts = if (boundingBoxes.isEmpty()) {
+            emptyMap()
+        } else {
+            boundingBoxes
                 .mapNotNull { if (it.clsName.isNotEmpty()) it.clsName else null }
                 .groupingBy { it }
                 .eachCount()
-
-            currentFrameCounts.forEach { (name, currentFrameCount) ->
-                maxSimultaneousCountsInInterval.compute(name) { _, existingMax ->
-                    maxOf(existingMax ?: 0, currentFrameCount)
-                }
-            }
         }
+        // Atomically set the latest counts reference
+        lastDetectedCountsRef.set(currentFrameCounts)
+        // --- CHANGE: Remove max count tracking logic ---
     }
 }
 
 // --- LogAdapter class remains the same ---
-// (Ensure R.layout.log_item is used in onCreateViewHolder)
+// (Ensure R.layout.log_item or similar is used in onCreateViewHolder)
 class LogAdapter(private var logs: MutableList<String> = mutableListOf()) :
     RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
 
@@ -450,12 +438,14 @@ class LogAdapter(private var logs: MutableList<String> = mutableListOf()) :
     }
 
     class LogViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val textView: TextView = itemView.findViewById(R.id.log_item_text) // Check ID
+        // --- IMPORTANT: Ensure this ID matches your item layout XML ---
+        val textView: TextView = itemView.findViewById(R.id.log_item_text)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LogViewHolder {
+        // --- IMPORTANT: Ensure this layout file exists and contains the TextView with the correct ID ---
         val itemView = LayoutInflater.from(parent.context)
-            .inflate(R.layout.log_activity, parent, false) // Use your item layout
+            .inflate(R.layout.log_activity, parent, false) // Use your log item layout XML
         return LogViewHolder(itemView)
     }
 
@@ -467,10 +457,11 @@ class LogAdapter(private var logs: MutableList<String> = mutableListOf()) :
         return logs.size
     }
 
+    // --- MODIFIED: Insert at the beginning for "newest first" display ---
     fun addLogs(newLogEntries: List<String>) {
         if (newLogEntries.isEmpty()) return
-        logs.addAll(newLogEntries)
-        notifyItemRangeInserted(0, newLogEntries.size)
+        logs.addAll(0, newLogEntries) // Add to the beginning of the list
+        notifyItemRangeInserted(0, newLogEntries.size) // Notify insertion at the top
     }
 
     fun clearLogs() {
